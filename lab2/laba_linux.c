@@ -79,7 +79,7 @@ void CreateSignal(struct Data *data)
 {
 	data->key = ftok("/home/softweremaker/Desktop/ForComp/lab2", 0);	//Генерация ключа
 	data->semid = semget(data->key, 1, IPC_CREAT);					//Создает семафор
-	semctl(data->semid, 0, SETVAL, 0);								//Зануляет семофор
+	semctl(data->semid, 0, SETVAL, 0);								//Зануляет семафор
 	data->mybuff.sem_num = 0;										//Установка функций для управлений семаформами
 	data->mybuff.sem_op = 0;
 	data->mybuff1.sem_num = 0;
@@ -91,7 +91,7 @@ void PrintProcesses(char **argv, struct Data *data)
 	while(1) 
 	{
 		semop(data->semid, &(data->mybuff), 1);						//Ожидает равенства нуля семафора
-		semop(data->semid, &(data->mybuff1), 1);					//Прибовляет 1 к семофору
+		semop(data->semid, &(data->mybuff1), 1);					//Прибавляет 1 к семафору
 		//usleep(500000);
 		printf("Process number %s\n", argv[1]);						//Выводит надпись
 		data->mybuff1.sem_op = -1;									//Изменяет структуру типа sembuf, с именем mybuff1
