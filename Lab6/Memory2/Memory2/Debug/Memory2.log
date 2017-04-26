@@ -1,0 +1,6 @@
+﻿  Main.cpp
+d:\предметы\4 семместр\сповм\labs\lab6\memory2\memory2\main.cpp(39): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+d:\предметы\4 семместр\сповм\labs\lab6\memory2\memory2\main.cpp(109): warning C4018: '<': signed/unsigned mismatch
+d:\предметы\4 семместр\сповм\labs\lab6\memory2\memory2\main.cpp(124): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+  Memory2.vcxproj -> D:\Предметы\4 Семместр\СПОВМ\Labs\Lab6\Memory2\Debug\Memory2.exe
+  Memory2.vcxproj -> D:\Предметы\4 Семместр\СПОВМ\Labs\Lab6\Memory2\Debug\Memory2.pdb (Full PDB)
