@@ -5,12 +5,13 @@
 #include <locale.h>
 #pragma warning (disable:4996)
 #define MASK_SIZE 16								//Размер маски
-#define SEG_SIZE 16									//Размер одного сегмента
+#define SEG_SIZE 16						 		//Размер одного сегмента
 #define MEMORY_SIZE (MASK_SIZE*SEG_SIZE)			//Размер памяти
 //MASK - маска секторов, один сектор равен 16 байтам
 //MEMORY - сама память(256 байт)
 struct pointer										//Структура для хранения указателей
 {
+	//void** ptr_on_ptr;
 	void* p;										//Сам указатель
 	int num_of_seg;									//Размер, на который указывает указатель
 };
@@ -26,6 +27,7 @@ void init()
 	{
 		MASK[i] = 0;
 		POINTERS[i].p = nullptr;
+		//POINTERS[i].ptr_on_ptr = nullptr;
 		POINTERS[i].num_of_seg = 0;
 	}
 }
@@ -154,33 +156,105 @@ void show_mem()
 	printf("\n");
 }
 
+//Дефрагментация памяти, принимает переменное число указателей на указатели, последним должен идти nullptr.
+void defragmentation(void** ppFirst, ...)
+{
+	void*** ptrs = &ppFirst;											//Массив указателей на указатели в программе
+	if (ptrs == nullptr) return;										//Если массив пуст, то завершение программы
+	for (int i = 0, j = 0; i < MASK_SIZE; i++)							//Проверка на то, были ли указатели посланы верные указатели
+	{
+		if (POINTERS[i].p == nullptr) continue;
+		for (j = 0; ptrs[j] != nullptr && (*ptrs[j] != POINTERS[i].p); j++);
+		if (ptrs[j] == nullptr) return;
+	}
+	int free_seg_start = 0, free_seg_end = 0;							//Начало и конец фрагментированных сегментов
+	int mem_start = 0, mem_end = 0;										//Начало и конец фрагментированной памяти
+	int check_stop = 0;													//Место остановки проверки
+	while (1)
+	{
+		while (MASK[free_seg_start] == 1 && free_seg_start < MASK_SIZE) free_seg_start++;	//Ищем начало пустой памяти
+		if (free_seg_start == MASK_SIZE) break;							//Если пустой памяти нет, то конец процедуры
+		free_seg_end = free_seg_start;
+		check_stop = free_seg_start;									//Запоминаем место, с которого будем начинать проверку в след раз
+		while (MASK[free_seg_end] == 0 && free_seg_end < MASK_SIZE) free_seg_end++;			//Ищем конец фрагментированного куска
+		if (free_seg_end == MASK_SIZE) break;
+		mem_start = free_seg_start*SEG_SIZE;							//Получаем начало фрагментированного куска памяти
+		mem_end = free_seg_end*SEG_SIZE;								//Получаем конец фрагментированного куска памяти
+		int rupture = mem_end - mem_start;
+		for (; mem_end < MEMORY_SIZE; mem_start++, mem_end++)			//Смещаем память, заполняя свободный кусок
+		{
+			MEMORY[mem_start] = MEMORY[mem_end];
+			MEMORY[mem_end] = 0;
+		}
+		for (; free_seg_end < MASK_SIZE; free_seg_start++, free_seg_end++)	//Переписываем маску и указатели
+		{
+			MASK[free_seg_start] = MASK[free_seg_end];					//Смещение маски
+			MASK[free_seg_end] = 0;
+			POINTERS[free_seg_start] = POINTERS[free_seg_end];			//Смещение указателей
+			POINTERS[free_seg_end].num_of_seg = 0;
+			POINTERS[free_seg_end].p = nullptr;
+			int i = 0;
+			for (; ptrs[i] != nullptr; i++)								//Поиск указателя в массиве указателей на указатели
+			{
+				if (POINTERS[free_seg_start].p == *ptrs[i])
+					break;
+			}
+			if (ptrs[i] == nullptr) continue;							//Если не нашли такого указателя, то конец цикл заново
+			POINTERS[free_seg_start].p = ((char*)POINTERS[free_seg_start].p - rupture);	//Корректируем указатель, отнимая от него смещение
+			*ptrs[i] = POINTERS[free_seg_start].p;						//Изменяем внешний указатель
+		}
+		free_seg_start = check_stop;
+	}
+}
+
 int main()
 {
 	init();
 	setlocale(LC_ALL, "Rus");
-	puts("Выделение string1(32 байта) с информацией: ");
-	char* str1 = (char*)Malloc(32);
-	strcpy(str1, "FIRST STRING1111111111111111111");
-	puts(str1);
-	puts("Выделение string2(16 байт) с информацией: ");
+	{
+		puts("Выделение string1(32 байта) с информацией: ");
+		char* str1 = (char*)Malloc(32);
+		strcpy(str1, "FIRST STRING1111111111111111111");
+		puts(str1);
+		puts("Выделение string2(16 байт) с информацией: ");
+		char* str2 = (char*)Malloc(16);
+		strcpy(str2, "2SECOND STRING2");
+		puts(str2);
+		puts("Вывод памяти:");
+		show_mem();
+		puts("Обрезание памяти string1 до 16 байт");
+		str1 = (char*)Realloc(str1, 16);
+		puts("Увеличеник памяти string2 до 78 байт");
+		str2 = (char*)Realloc(str2, 78);
+		strcpy(str2, "SECOND STRING 222222222222222222222222222222222222222222222222222222222222222");
+		puts("Новая строка string2:");
+		puts(str2);
+		puts("Вывод памяти:");
+		show_mem();
+		puts("Дефрагментация:");
+		defragmentation((void**)&str1, (void**)&str2, nullptr);
+		show_mem();
+		puts("Удаление строк string1 и string2");
+		Free(str1);
+		Free(str2);
+		puts("Вывод памяти:");
+		show_mem();
+	}
+	puts("--------------------------------");
+	puts("ДЕМОНСТРАЦИЯ ДЕФРАГМЕНТАЦИИ 2");
+	puts("--------------------------------");
+	char* str1 = (char*)Malloc(16);
+	strcpy(str1, "111111111111111");
 	char* str2 = (char*)Malloc(16);
-	strcpy(str2, "2SECOND STRING2");
-	puts(str2);
-	puts("Вывод памяти:");
+	strcpy(str2, "222222222222222");
+	char* str3 = (char*)Malloc(16);
+	strcpy(str3, "333333333333333");
+	str1 = (char*)Realloc(str1, 32);
+	strcpy(str1, "1111111111111111111111111111111");
+	str3 = (char*)Realloc(str3, 32);
+	strcpy(str3, "3333333333333333333333333333333");
 	show_mem();
-	puts("Обрезание памяти string1 до 16 байт");
-	str1 = (char*)Realloc(str1, 16);
-	puts("Увеличеник памяти string2 до 78 байт");
-	str2 = (char*)Realloc(str2, 78);
-	strcpy(str2, "SECOND STRING 222222222222222222222222222222222222222222222222222222222222222");
-	puts("Новая строка string2:");
-	puts(str2);
-	puts("Вывод памяти:");
-	show_mem();
-	puts("Удаление строк string1 и string2");
-	Free(str1);
-	Free(str2);
-	puts("Вывод памяти:");
+	defragmentation((void**)&str1, (void**)&str2, (void**)&str3, nullptr);
 	show_mem();
 	system("pause");
 	return 0;

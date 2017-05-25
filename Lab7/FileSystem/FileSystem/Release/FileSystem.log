@@ -1,7 +1,22 @@
 ﻿  Main.cpp
+Main.cpp(318): warning C4013: 'delFile' undefined; assuming extern returning int
+Main.cpp(371): warning C4018: '<': signed/unsigned mismatch
+Main.cpp(374): warning C4013: 'addFile' undefined; assuming extern returning int
+Main.cpp(399): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+Main.cpp(495): warning C4047: 'function': 'char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(495): warning C4024: 'strcpy': different types for formal and actual parameter 1
+Main.cpp(496): warning C4047: 'function': 'char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(496): warning C4024: 'strcat': different types for formal and actual parameter 1
+Main.cpp(497): warning C4047: 'function': 'char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(497): warning C4024: 'strcat': different types for formal and actual parameter 1
+Main.cpp(498): warning C4047: 'function': 'const char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(498): warning C4024: 'fopen': different types for formal and actual parameter 1
+Main.cpp(670): warning C4047: 'function': 'char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(670): warning C4024: 'gets_s': different types for formal and actual parameter 1
+Main.cpp(671): warning C4047: 'function': 'char *' differs in levels of indirection from 'char *[512]'
+Main.cpp(671): warning C4024: 'writeFileInFileSystem': different types for formal and actual parameter 2
   Generating code
-d:\предметы\4 семместр\сповм\labs\lab7\filesystem\filesystem\main.cpp(45): warning C4715: 'addDir': not all control paths return a value
-  14 of 15 functions (93.3%) were compiled, the rest were copied from previous compilation.
+  1 of 20 functions ( 5.0%) were compiled, the rest were copied from previous compilation.
     0 functions were new in current compilation
     0 functions had inline decision re-evaluated but remain unchanged
   Finished generating code

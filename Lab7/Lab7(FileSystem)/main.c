@@ -1,5 +1,8 @@
+//Размер эмулироемого диска = 200000 байт. Системная информация хранится в первых 100000 байтах.
+//Оставшиеся 100000 байт заполняются файлами.
 #include "Header.h"
 struct Info info;											//Глобальная структура, которая хранит начало свободного места
+struct Buffer buffer;
 
 //Инициализация директории
 void initDir(struct Dir* dptr, struct Dir* prev, const char* name)
@@ -13,8 +16,29 @@ void initDir(struct Dir* dptr, struct Dir* prev, const char* name)
 	{
 		dptr->filesInfo[i].position = -1;
 		dptr->filesInfo[i].size = -1;
+		dptr->filesInfo[i].num_of_segments = -1;
+		dptr->filesInfo[i].begin_segment = -1;
 		strcpy(dptr->filesInfo[i].name, "");
 	}
+}
+
+void initInfo()
+{
+	for (int i = 0; i < MASK_SIZE; i++)
+	{
+		info.MASK[i] = 0;
+	}
+}
+
+void showMask()
+{
+	printf("%d", info.MASK[0]);
+	for (int i = 1; i < MASK_SIZE; i++)
+	{
+		if (i % 100 == 0) printf("\n");
+		printf("%d", info.MASK[i]);
+	}
+	printf("\n");
 }
 
 //Добавление директории(возвращаемые значения: 1 - успешно, 0 - текущая директория содержим max число директорий,
@@ -37,7 +61,6 @@ int addDir(struct Dir* dptr, const char* n)
 		}
 		initDir(&(dptr->dirs[dptr->num_of_dirs]), dptr, n);	//Инициализация новой директории
 		dptr->num_of_dirs++;								//Увличение числа директорий данной директории
-		return 1;
 	}
 	else
 	{
@@ -86,7 +109,7 @@ void writeInFile(struct Dir* root)
 		puts("ERROR");
 		exit(1);
 	}
-	fwrite(&info, sizeof(struct Info), 1, FS);				//Кастыль чтобы переместить курсор на sizeof( struct Info)(fseek не работает)
+	fwrite(&info, sizeof(struct Info), 1, FS);				//Запись информации о системе
 	fwrite(root, sizeof(struct Dir), 1, FS);				//Запись в файл корневого каталога
 	fwrite(root->dirs, sizeof(struct Dir), root->num_of_dirs, FS);	//Запись каталогов корневого коталого в файл
 	struct Dir* level = root->dirs;							//Указатель на массив второго уровня дерева каталогов
@@ -290,8 +313,10 @@ void delDir(struct Dir* pdir)
 		for (int i = 0; i < pdir->num_of_dirs; i++)			//Вызов удаления для всех подкаталогов
 			delDir(&(pdir->dirs[i]));
 	}
-	//Удаление файлов директории(можно не писать, т.к. в данной реализации при потери информации о файле, сам файл недосягаем)
-	//(при удалении файла память не освобождатся)
+	for (int i = 0; i < pdir->num_of_files; i++)			//Удаление файлов директории
+	{
+		delFile(pdir, pdir->filesInfo[i].name);
+	}
 	int j = 0;
 	struct Dir* prevDirPtr = pdir->previous;				//Получение указателя на предыдущий каталог
 	for (; j < prevDirPtr->num_of_dirs; j++)				//Поиск данного каталога их предыдущего каталога
@@ -326,57 +351,92 @@ int readFile(struct Dir* pdir, const char* n, char* buf)
 	}
 	FILE* FS = fopen("FS", "r+b");
 	fsetpos(FS, &(pdir->filesInfo[i].position));			//Перемещение указателя в "диске" на место начало файла
-	fread(buf, sizeof(char), SIZE_OF_FILE, FS);				//Чтение файла полностью
+	fread(buf, sizeof(char), SIZE_OF_SEGMENT*pdir->filesInfo[i].num_of_segments, FS);	//Чтение файла полностью
 	fclose(FS);
 	return 1;
 }
 
 //Запись данных в файл(возвращаемые значения: 1 - успешно, 0 - такого файла нет)
-int writeDataInFile(struct Dir* pdir, const char* n, const char* buf)
+int writeDataInFile(struct Dir* pdir, const char* name, const char* buf)
 {
 	int i = 0;
 	for (; i < pdir->num_of_files; i++)						//Поиск файла в массиве файлов
 	{
-		if (!strcmp(pdir->filesInfo[i].name, n)) break;
+		if (!strcmp(pdir->filesInfo[i].name, name)) break;
 	}
 	if (i == pdir->num_of_files)
 	{
 		return 0;
 	}
+	if (pdir->filesInfo[i].num_of_segments*SIZE_OF_SEGMENT < strlen(buf))
+	{
+		delFile(pdir, name);
+		addFile(pdir, name, strlen(buf));
+	}
+	for (i =0; i < pdir->num_of_files; i++)					//Поиск файла в массиве файлов
+	{
+		if (!strcmp(pdir->filesInfo[i].name, name)) break;
+	}
 	FILE* FS = fopen("FS", "r+b");
 	fsetpos(FS, &(pdir->filesInfo[i].position));			//Перемещение указателя в "диске" на место начала файла
-	fwrite(buf, sizeof(char), SIZE_OF_FILE, FS);			//Запись информации в файл
+	fwrite(buf, sizeof(char), strlen(buf), FS);				//Запись информации в файл
 	fclose(FS);
 	return 1;
 }
 
 //Добавление файла(возвращаемые значения: 1 - успешно, 0 - места нет, -1 - файл с таким именем уже существует,
 //-2 - в директории уже максимальное количество файлов)
-int addFile(struct Dir* pdir, const char* n)
+int addFile(struct Dir* pdir, const char* n, int fileSize)
 {
-	if (info.begin_of_free_space + SIZE_OF_FILE < SIZE_OF_THE_DISK)
+	for (int i = 0; i < pdir->num_of_files; i++)
 	{
-		int i = 0;
-		for (; i < pdir->num_of_files; i++)
+		if (!strcmp(pdir->filesInfo[i].name, n)) return -1;
+	}
+	if (pdir->num_of_files == MAX_NUM_OF_FILES) return -2;
+	int segNum;										//Количество выделяемых сегментов
+	float num = (float)fileSize / SIZE_OF_SEGMENT;
+	if (num == (int)fileSize / SIZE_OF_SEGMENT) segNum = (int)num;
+	else segNum = num + 1;
+	int memBeg, memEnd;								//Номер начального сегмента и сегмента после конечного сегмента
+	int i = 0;
+	//Поиск по всей памяти(алгоритм первый подходящий, т.е. с самого начала памяти ищется подходящий кусок памяти)
+	while (i < MASK_SIZE)
+	{
+		while (info.MASK[i] == 1 && i < MASK_SIZE) i++;	//Пропуск занятых сегментов
+		if (i == MASK_SIZE) return 0;
+		memBeg = i;										//Запоинаем начало подходящего сегмента
+		int sn = segNum;
+		while ((info.MASK[i] == 0) && (i < MASK_SIZE) && (sn > 0))	//Проверка, достаточно ли большой кусок памяти найден
 		{
-			if (!strcmp(pdir->filesInfo[i].name, n)) return -1;
+			sn--;
+			i++;
 		}
-		if (pdir->num_of_files == MAX_NUM_OF_FILES) return -2;
+		if (i == MASK_SIZE && sn > 0) return 0;
+		if (sn > 0) continue;
+		else
+		{
+			memEnd = i;								//Номер сегмента сдедующего за последним сегментом выдел. памяти
+			break;
+		}
+	}
+	for (i = memBeg; i < memEnd; i++)				//Обновляем маску
+	{
+		info.MASK[i] = 1;
+	}
 		FILE* FS = fopen("FS", "r+b");
-		fsetpos(FS, &info.begin_of_free_space);				//Премещение указателя в "диске" на начало свободного места
-		fseek(FS, SIZE_OF_FILE, SEEK_CUR);
-		fgetpos(FS, &info.begin_of_free_space);				//Получение указателя на новое свободное место
-		pdir->filesInfo[pdir->num_of_files].position = info.begin_of_free_space;
-		pdir->filesInfo[pdir->num_of_files].size = SIZE_OF_FILE;
+		fpos_t startFileMem = BEGIN_OF_FILES + memBeg*SIZE_OF_SEGMENT;
+		fsetpos(FS, &startFileMem);				//Премещение указателя в "диске" на начало свободного места
+		char* zeroMem = (char*)calloc(SIZE_OF_SEGMENT * segNum, sizeof(char));
+		fwrite(zeroMem, sizeof(char), SIZE_OF_SEGMENT * segNum, FS);
+		free(zeroMem);
+		fclose(FS);
+		pdir->filesInfo[pdir->num_of_files].position = startFileMem;
+		pdir->filesInfo[pdir->num_of_files].size = fileSize;
+		pdir->filesInfo[pdir->num_of_files].num_of_segments = segNum;
+		pdir->filesInfo[pdir->num_of_files].begin_segment = memBeg;
 		strcpy(pdir->filesInfo[pdir->num_of_files].name, n);
 		pdir->num_of_files++;
-		fclose(FS);
-		char* zeroMem = (char*)calloc(SIZE_OF_FILE, sizeof(char));
-		writeDataInFile(pdir, n, zeroMem);					//Зануление памяти
-		free(zeroMem);
 		return 1;
-	}
-	else return 0;
 }
 
 //Удаление файла(возвращаемые значения: 1 - успешно, 0 - такого файла нет)
@@ -391,6 +451,12 @@ int delFile(struct Dir* pdir, const char* n)
 	{
 		return 0;
 	}
+	int segStart = pdir->filesInfo[i].begin_segment;
+	int segEnd = segStart + pdir->filesInfo[i].num_of_segments;
+	for (int j = segStart; j < segEnd; j++)					//Обновление маски
+	{
+		info.MASK[j] = 0;
+	}
 	while (i < (pdir->num_of_files - 1))					//Смещение инфы о фалах в массиве на 1 влево, чтобы удалить ифнормацию
 	{														//об удаляемом файле
 		pdir->filesInfo[i] = pdir->filesInfo[i + 1];
@@ -399,7 +465,100 @@ int delFile(struct Dir* pdir, const char* n)
 	strcpy(pdir->filesInfo[i].name, "");
 	pdir->filesInfo[i].position = -1;
 	pdir->filesInfo[i].size = -1;
+	pdir->filesInfo[i].num_of_segments = -1;
+	pdir->filesInfo[i].begin_segment = -1;
 	pdir->num_of_files--;
+	return 1;
+}
+
+//Записать файл в файловую систему.(Возвращает: 1 - успешна, 0 - такого файла нет,
+//-1 - не удалось создать файл в файловой системе, -2 - ошибка выделения памяти)
+int writeFileInFileSystem(struct Dir* pdir, char* path, char* fileName)
+{
+	int i = 0;
+	for (; i < pdir->num_of_files; i++)						//Ищем файл в директории
+	{
+		if (!strcmp(pdir->filesInfo[i].name, fileName)) break;
+	}
+	if (i == pdir->num_of_files)
+	{
+		return 0;
+	}
+	int fileSize = pdir->filesInfo[i].num_of_segments*SIZE_OF_SEGMENT;
+	char* buf = (char*)malloc(sizeof(char)*fileSize);
+	if (!buf) return -2;
+	if (!readFile(pdir, fileName, buf))
+	{
+		return 0;
+	}
+	char* fullPath[BUFFER_SIZE];
+	strcpy(fullPath, path);
+	strcat(fullPath, "/");
+	strcat(fullPath, fileName);
+	FILE* file = fopen(fullPath, "wb");
+	if (!file) return -1;
+	fwrite(buf, sizeof(char), fileSize, file);
+	fclose(file);
+	free(buf);
+	return 1;
+}
+
+//Добавляет файл из файловой системы.(Возвращаемые значения: 1 - успешно, 0 - места нет,
+//-1 - файл с таким именем уже существует, -2 - в дирректории уже максимальное количество файлов,
+//-3 - файл в файловой системе не открылся,
+int readFileFromFileSystem(struct Dir* pdir, char* path, char* fileName)
+{
+	char fullPath[BUFFER_SIZE];
+	strcpy(fullPath, path);
+	strcat(fullPath, "/");
+	strcat(fullPath, fileName);
+	FILE* file = fopen(fullPath, "rb");
+	if (!file) return -3;
+	int fileSize = filelength(fileno(file));
+	char* buf = (char*)malloc(sizeof(char)*fileSize+1);
+	buf[fileSize] = 0;
+	fread(buf, sizeof(char), fileSize, file);
+	fclose(file);
+	int err = addFile(pdir, fileName, fileSize+1);
+	if (err <= 0) return err;
+	writeDataInFile(pdir, fileName, buf);
+	free(buf);
+	return 1;
+}
+
+//Копирует файл в буффер(Возвращаемые значение: 1 - успешно, 0 - такого фалйа нет, -1 - ошибка выделения памяти)
+int copy(struct Dir* pdir, char* fileName)
+{
+	int i = 0;
+	for (; i < pdir->num_of_files; i++)						//Ищем файл в директории
+	{
+		if (!strcmp(pdir->filesInfo[i].name, fileName)) break;
+	}
+	if (i == pdir->num_of_files)
+	{
+		return 0;
+	}
+	buffer.bufferSize = pdir->filesInfo[i].num_of_segments*SIZE_OF_SEGMENT;
+	buffer.fileInfo = (char*)malloc(sizeof(char)*buffer.bufferSize);
+	if (!buffer.fileInfo) return -1;
+	readFile(pdir, fileName, buffer.fileInfo);
+	strcpy(buffer.fileName, fileName);
+	return 1;
+}
+
+//Вставляет файл в дирректорию(Возвращаемые значения: 1 - успешно, 0 - места нет, -1 - файл с таким именем
+//уже существует, -2 - в дирректории уже максимальное колисество фалов, -3 - буффер пуст, -4 - непредвиденная
+//ошибка)
+int paste(struct Dir* pdir)
+{
+	if (buffer.fileInfo == NULL || strlen(buffer.fileName) == 0 || buffer.bufferSize ==0) return -3;
+	int err = addFile(pdir, buffer.fileName, buffer.bufferSize);
+	if (err <= 0) return err;
+	err = writeDataInFile(pdir, buffer.fileName, buffer.fileInfo);
+	if (!err) return -4;
+	strcpy(buffer.fileName, "");
+	free(buffer.fileInfo);
+	buffer.fileInfo = NULL;
 	return 1;
 }
 
@@ -407,18 +566,24 @@ int main()
 {
 	struct Dir root;										//Корень дерева каталогов
 	readFromFile(&root);									//Читаем каталоги из файла с инфой
+	//Для первого запуска раскоментить(и закоментить строчку выше):
+	//initDir(&root, NULL, "root");
+	//initInfo();
 	struct Dir* curDir = &root;								//Инициализация указателя на текущую директорию
+	strcpy(buffer.fileName, "");
+	buffer.fileInfo = NULL;
+	buffer.bufferSize = 0;
 	char buf[MAX_NAME];
 	while (1)
 	{
 		printf("%s", getCurrentPath(curDir));
-		gets(buf);								//Ввод команды
+		gets_s(buf, MAX_NAME);								//Ввод команды
 		if (!strcmp(buf, "exit")) break;
 		else if (!strcmp(buf, "dir")) showDir(curDir);
 		else if (!strcmp(buf, "addDir"))
 		{
-			gets(buf);
-			int n =	addDir(curDir, buf);
+			gets_s(buf, MAX_NAME);
+			int n = addDir(curDir, buf);
 			switch (n)
 			{
 			case 1: break;
@@ -431,7 +596,7 @@ int main()
 		else if (!strcmp(buf, "..") && curDir->previous) curDir = curDir->previous;
 		else if (!strcmp(buf, "delDir"))
 		{
-			gets(buf);
+			gets_s(buf, MAX_NAME);
 			int i = 0;
 			for (; i < curDir->num_of_dirs; i++)
 			{
@@ -449,9 +614,9 @@ int main()
 		}
 		else if (!strcmp(buf, "addFile"))
 		{
-			gets(buf);
+			gets_s(buf, MAX_NAME);
 			int n;
-			n = addFile(curDir, buf);
+			n = addFile(curDir, buf, SIZE_OF_SEGMENT);
 			switch (n)
 			{
 			case 1: break;
@@ -465,8 +630,8 @@ int main()
 		}
 		else if (!strcmp(buf, "showFile"))
 		{
-			char fileData[SIZE_OF_FILE];
-			gets(buf);
+			char fileData[100000];
+			gets_s(buf, MAX_NAME);
 			if (readFile(curDir, buf, fileData) == 0)
 			{
 				strcpy(buf, "no such file");
@@ -477,11 +642,11 @@ int main()
 		}
 		else if (!strcmp(buf, "writeInFile"))
 		{
-			char fileData[SIZE_OF_FILE];
+			char fileData[SIZE_OF_SEGMENT];
 			printf("Enter name: ");
-			gets(buf);
+			gets_s(buf, MAX_NAME);
 			printf("Enter data: ");
-			gets(fileData);
+			gets_s(fileData, MAX_NAME);
 			if (!writeDataInFile(curDir, buf, fileData))
 			{
 				puts("There is no such file");
@@ -489,11 +654,74 @@ int main()
 		}
 		else if (!strcmp(buf, "delFile"))
 		{
-			gets(buf);
+			gets_s(buf, MAX_NAME);
 			if (!delFile(curDir, buf))
 			{
 				puts("There is no such file");
 			}
+		}
+		else if (!strcmp(buf, "writeFileInFileSystem"))
+		{
+			char* path[BUFFER_SIZE];
+			int err;
+			puts("Write name of file:");
+			gets_s(buf, MAX_NAME);
+			puts("Write path:");
+			gets_s(path, BUFFER_SIZE);
+			err = writeFileInFileSystem(curDir, path, buf);
+			if (err == 0) puts("There is no such file");
+			else if (err == -1) puts("Can't create file in file system");
+		}
+		else if (!strcmp(buf, "readFileFromFileSystem"))
+		{
+			char path[BUFFER_SIZE];
+			int err;
+			puts("Write path to directory:");
+			gets_s(path, BUFFER_SIZE);
+			puts("Write name of file:");
+			gets_s(buf, MAX_NAME);
+			err = readFileFromFileSystem(curDir, path, buf);
+			switch (err)
+			{
+			case 1:puts("File added");
+				break;
+			case 0:puts("There is no free space");
+				break;
+			case -1:puts("There is file with this name");
+				break;
+			case -2:puts("Directory is full");
+				break;
+			case -3:puts("Can't open file in file system");
+				break;
+			}
+		}
+		else if (!strcmp(buf, "copy"))
+		{
+			puts("Enter file name");
+			gets_s(buf, BUFFER_SIZE);
+			if (!copy(curDir, buf))
+				puts("There is no such file");
+		}
+		else if (!strcmp(buf, "paste"))
+		{
+			int err = paste(curDir);
+			switch (err)
+			{
+			case 1: break;
+			case 0: puts("There is no empty space");
+				break;
+			case -1: puts("There is such file");
+				break;
+			case -2: puts("Directory is full");
+				break;
+			case -3: puts("Buffer is empty");
+				break;
+			case -4: puts("unidentifed error");
+				break;
+			}
+		} else if (!strcmp(buf, "showMask"))
+		{
+			showMask();
 		}
 		else
 		{
@@ -515,6 +743,7 @@ int main()
 
 	}
 	writeInFile(&root);										//Запись информации в файл
+	if (!buffer.fileInfo) free(buffer.fileInfo);
 	system("pause");
 	return 0;
 }
